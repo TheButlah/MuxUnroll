@@ -46,6 +46,7 @@ class LSTM(object):
                 lstm_cell = tf.contrib.rnn.BasicLSTMCell(num_units=256)  # This defines the cell structure
                 state = lstm_cell.zero_state(batch_size=tf.shape(self._x)[0], dtype=tf.float32)  # Initial state
 
+                # Unroll the graph num_steps back into the "past"
                 for i in range(num_steps):
                     if i > 0: scope.reuse_variables()  # Reuse the variables created in the 1st LSTM cell
                     output, state = lstm_cell(self._hot[:, i, :], state)  # Step the LSTM through the sequence
@@ -120,3 +121,32 @@ class LSTM(object):
             if start_stop_info:
                 print("Completed Training.")
         return loss_val
+
+    def apply(self, x_data):
+        """Applies the model to the batch of data provided. Typically called after the model is trained.
+        Args:
+            x_data:  A numpy ndarray of the data to apply the model to. Should have the same shape as the training data.
+
+        Returns:
+            A numpy ndarray of the data, with shape [batch_size, embedding_size]. Rows are class probabilities.
+            Example: result.shape is [batch_size, 100] when there are 100 unique words in the chosen dictionary.
+        """
+        with self._sess.as_default():
+            return self._sess.run(self._y_hat, feed_dict={self._x: x_data})
+
+    def save_model(self, save_path=None):
+        """Saves the model in the specified file.
+        Args:
+            save_path:  The relative path to the file. By default, it is
+                saved/LSTM-Year-Month-Date_Hour-Minute-Second.ckpt
+        """
+        with self._sess.as_default():
+            print("Saving Model")
+            if save_path is None:
+                save_path = "saved/LSTM-%s.ckpt" % strftime("%Y-%m-%d_%H-%M-%S")
+            dirname = os.path.dirname(save_path)
+            if dirname is not '':
+                os.makedirs(dirname, exist_ok=True)
+            save_path = os.path.abspath(save_path)
+            path = self._saver.save(self._sess, save_path)
+            print("Model successfully saved in file: %s" % path)
