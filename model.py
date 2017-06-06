@@ -3,7 +3,6 @@ from __future__ import division
 from __future__ import absolute_import
 
 import tensorflow as tf
-import numpy as np
 
 from time import time, strftime
 import os
@@ -108,7 +107,7 @@ class LSTM(object):
             # Training loop for parameter tuning
             if start_stop_info:
                 print("Starting training for %d epochs" % num_epochs)
-            if self._last_time is None: self._last_time = time()  # Update last_time for the first time
+            if self._last_time is None: self._last_time = time()  # Update last_time if it was never set
             for epoch in range(num_epochs):
                 _, loss_val = self._sess.run(
                     [self._train_step, self._loss],
