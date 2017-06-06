@@ -2,14 +2,6 @@ from __future__ import print_function
 from __future__ import division
 from __future__ import absolute_import
 
-'''
-#from __future__ import unicode_literals
-
-# noinspection PyCompatibility
-from builtins import range
-from future import standard_library
-standard_library.install_aliases()'''
-
 import tensorflow as tf
 import numpy as np
 
@@ -23,7 +15,8 @@ class LSTM(object):
 
         Args:
             num_steps:      An integer that is the number of unrolled steps that the LSTM takes. This is not (usually)
-                            the length of the actual sequence. This number is the maximum
+                            the length of the actual sequence. This number is related to the ability of the LSTM to
+                            understand long-term dependencies in the data.
             embedding_size: An integer that is equal to the size of the vectors used to embed the input elements.
                             Example: 10,000 for 10,000 unique words in the vocabulary
             seed:           An integer used to seed the initial random state. Can be None to generate a new random seed.
@@ -35,6 +28,8 @@ class LSTM(object):
         self._embedding_size = embedding_size
         self._seed = seed
         self._num_steps = num_steps  # Tuples are used to ensure the dimensions are immutable
+
+        self._last_time = None  # Used by train to keep track of time
 
         self._graph = tf.Graph()
         with self._graph.as_default():
@@ -82,3 +77,46 @@ class LSTM(object):
                     print("Initializing model...")
                     self._sess.run(tf.global_variables_initializer())
                     print("Model Initialized!")
+
+    def train(self, x_train, y_train, num_epochs, start_stop_info=True, progress_info=True):
+        """Trains the model using the data provided as a batch.
+
+        It is often infeasible to load the entire dataset into memory. For this reason, the selection of batches is left
+        up to the user, so that s/he can load the proper amount of data. Because the loss is averaged over the batch,
+        a larger batch size will result in a more stable training process with potentially better results when applying
+        the model, although having a smaller batch size means less memory consumption and sometimes faster training.
+
+        Args:
+            x_train:  A numpy ndarray that contains the data to train over. Should should have a shape of
+                [batch_size, num_steps]. Each element of this matrix should be the index of the item being trained on in
+                its one-hot encoded representation. Indices are used instead of the full one-hot vector for efficiency.
+            y_train:  A numpy ndarray that contains the labels that correspond to the data being trained on. Should have
+                a shape of [batch_size]. Each element is the index of the on-hot encoded representation of the label.
+            num_epochs:  The number of iterations over the provided batch to perform until training is considered to be
+                complete. If all your data fits in memory and you don't need to mini-batch, then this should be a large
+                number (>1000). Otherwise keep this small (<50) so the model doesn't become skewed by the small size of
+                the provided mini-batch too quickly. It is expected that the code that selects the batch size will
+                call this train method once with each new batch (or just once if mini-batching is not necessary)
+            start_stop_info:  If true, print when the training begins and ends.
+            progress_info:  If true, print what the current loss and percent completion over the course of training.
+
+        Returns:
+            The loss value after training
+        """
+        with self._sess.as_default():
+            # Training loop for parameter tuning
+            if start_stop_info:
+                print("Starting training for %d epochs" % num_epochs)
+            if self._last_time is None: self._last_time = time()  # Update last_time for the first time
+            for epoch in range(num_epochs):
+                _, loss_val = self._sess.run(
+                    [self._train_step, self._loss],
+                    feed_dict={self._x: x_train, self._y: y_train}
+                )
+                current_time = time()
+                if progress_info and (current_time - self._last_time) >= 5:  # Only print progress every 5 seconds
+                    self._last_time = current_time
+                    print("Current Loss Value: %.10f, Percent Complete: %.4f" % (loss_val, epoch / num_epochs * 100))
+            if start_stop_info:
+                print("Completed Training.")
+        return loss_val
