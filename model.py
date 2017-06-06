@@ -22,7 +22,8 @@ class LSTM(object):
         """Initializes the architecture of the LSTM and returns an instance.
 
         Args:
-            num_steps:      An integer that is the number of unrolled steps that the LSTM takes.
+            num_steps:      An integer that is the number of unrolled steps that the LSTM takes. This is not (usually)
+                            the length of the actual sequence
             embedding_size: An integer that is equal to the size of the vectors used to embed the input elements.
                             Example: 10,000 for 10,000 unique words in the vocabulary
             seed:           An integer used to seed the initial random state. Can be None to generate a new random seed.
