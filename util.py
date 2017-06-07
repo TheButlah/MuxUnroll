@@ -46,6 +46,20 @@ def batch_norm(x, shape, axes, phase_train, decay=0.5, scope='BN'):
     return normed
 
 
+def print_examples(model, batch, print_start_stop=True, print_timing=True):
+    if print_start_stop: print("Applying model...")
+    start_time = time()
+    results = model.apply(batch)
+    elapsed = time() - start_time
+    if print_start_stop: print("Finished!")
+    for x, y in zip(batch, results):
+        print("\nInput:")
+        print(x)
+        print("Output:")
+        print(y)
+    if print_timing: print("\nInference Time: %f seconds" % elapsed)
+
+
 def eprint(*args, **kwargs):
     """Prints to stderr"""
     print(*args, file=sys.stderr, **kwargs)

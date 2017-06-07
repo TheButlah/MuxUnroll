@@ -5,8 +5,8 @@ from __future__ import absolute_import
 import numpy as np
 
 from sklearn.model_selection import train_test_split
-from time import time
 from model import LSTM
+from util import print_examples
 
 
 def main():
@@ -39,20 +39,6 @@ def main():
 
     results = model.apply(x_test)
     print("Testing Accuracy: ", np.equal(np.argmax(results, axis=1), y_test).astype(np.float32).mean())
-
-
-def print_examples(model, batch, print_start_stop=True, print_timing=True):
-    if print_start_stop: print("Applying model...")
-    start_time = time()
-    results = model.apply(batch)
-    elapsed = time() - start_time
-    if print_start_stop: print("Finished!")
-    for x, y in zip(batch, results):
-        print("\nInput:")
-        print(x)
-        print("Output:")
-        print(y)
-    if print_timing: print("\nInference Time: %f seconds" % elapsed)
 
 
 if __name__ == "__main__":
