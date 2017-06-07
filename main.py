@@ -26,7 +26,7 @@ def main():
     y = data[:, -1]
 
     x_train, x_test, y_train, y_test = train_test_split(x, y, train_size=0.2, random_state=seed)
-    model.train(x_train, y_train, num_epochs=num_epochs)
+    model.train(x_train, y_train, num_epochs=num_epochs, log_dir='logs/')
 
     print_examples(model, np.array(
         [[1,2,3,4,5,6,7,8,9]

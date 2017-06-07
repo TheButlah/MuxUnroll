@@ -34,7 +34,10 @@ class LSTM(object):
         self._seed = seed
         self._num_steps = num_steps  # Tuples are used to ensure the dimensions are immutable
 
-        self._last_time = None  # Used by train to keep track of time
+        self._last_time = 0  # Used by train to keep track of time
+        self._iter_count = 0  # Used by train to keep track of iterations
+        self._needs_update = True  # Used by train to indicate when enough time has passed to update summaries/stdout
+        self._summary_writer = None  # Used by train to write summaries
 
         self._graph = tf.Graph()
         with self._graph.as_default():
@@ -70,7 +73,11 @@ class LSTM(object):
                     logits=scores,
                     labels=self._y
                 ), name='Loss')
-                self._train_step = tf.train.AdamOptimizer(learning_rate=0.01).minimize(self._loss)
+                self._train_step = tf.train.AdamOptimizer(learning_rate=0.01).minimize(self._loss)  # Optimizer
+
+            with tf.variable_scope('Summaries'):
+                loss_summary = tf.summary.scalar('Loss', self._loss)
+                self._summaries = tf.summary.merge_all()
 
             self._sess = tf.Session()
             with self._sess.as_default():
@@ -85,7 +92,7 @@ class LSTM(object):
                     self._sess.run(tf.global_variables_initializer())
                     print("Model Initialized!")
 
-    def train(self, x_train, y_train, num_epochs, start_stop_info=True, progress_info=True):
+    def train(self, x_train, y_train, num_epochs, start_stop_info=True, progress_info=True, log_dir=None):
         """Trains the model using the data provided as a batch.
 
         It is often infeasible to load the entire dataset into memory. For this reason, the selection of batches is left
@@ -106,26 +113,52 @@ class LSTM(object):
                 call this train method once with each new batch (or just once if mini-batching is not necessary)
             start_stop_info:  If true, print when the training begins and ends.
             progress_info:  If true, print what the current loss and percent completion over the course of training.
+            log_dir:  If not None, then this should be a string indicating where to output log files for TensorBoard.
 
         Returns:
             The loss value after training
         """
         with self._sess.as_default():
             # Training loop for parameter tuning
-            if start_stop_info:
-                print("Starting training for %d epochs" % num_epochs)
-            if self._last_time is None: self._last_time = time()  # Update last_time if it was never set
+            if start_stop_info: print("Starting training for %d epochs" % num_epochs)
+
+            graph_elements = (self._loss, self._train_step, self._summaries)  # These will be passed into sess.run()
+            num_elements = 2  # This will be used as the stop index when indexing graph_elements
+
+            if log_dir is not None:
+                if self._summary_writer is None:
+                    print("Enabling Summaries!")
+                    print("Run \"tensorboard --logdir=path/to/log-directory\" to view the summaries.")
+                    self._summary_writer = tf.summary.FileWriter(log_dir, graph=self._graph)
+
             for epoch in range(num_epochs):
-                _, loss_val = self._sess.run(
-                    [self._train_step, self._loss],
-                    feed_dict={self._x: x_train, self._y: y_train}
-                )
-                current_time = time()
-                if progress_info and (current_time - self._last_time) >= 5:  # Only print progress every 5 seconds
-                    self._last_time = current_time
+                # We need to decide whether to enable the summaries or not to save on computation
+                if self._needs_update:
+                    if log_dir is not None:
+                        num_elements = 3  # Include summaries
+                    else:
+                        num_elements = 2  # Don't include summaries
+
+                # Feed the data into the graph and run one step of the computation
+                outputs = self._sess.run(graph_elements[:num_elements], feed_dict={self._x: x_train, self._y: y_train})
+                loss_val = outputs[0]  # Unpack the loss_val from the outputs
+
+                if progress_info and self._needs_update:  # Only print progress when needed
                     print("Current Loss Value: %.10f, Percent Complete: %.4f" % (loss_val, epoch / num_epochs * 100))
-            if start_stop_info:
-                print("Completed Training.")
+
+                if self._needs_update and log_dir is not None:  # Only compute summaries when needed
+                    self._summary_writer.add_summary(outputs[2], self._iter_count)
+
+                current_time = time()
+                if (current_time - self._last_time) >= 5:  # Update logs/progress every 5 seconds
+                    self._last_time = current_time
+                    self._needs_update = True
+                else:
+                    self._needs_update = False
+
+                self._iter_count += 1
+
+            if start_stop_info: print("Completed Training.")
         return loss_val
 
     def apply(self, x_data):
