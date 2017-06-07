@@ -9,6 +9,12 @@ import os
 
 
 class LSTM(object):
+    """This class implements the LSTM (Long Short-term Memory) architecture for Recurrent Neural Networks in TensorFlow.
+
+    An LSTM is a type of Recurrent Neural Network that aims to minimize the effects of the Vanishing/Exploding Gradient
+    problem by managing its internal cell state with forget, input, and output gates.
+    """
+
     def __init__(self, embedding_size, num_steps, seed=None, load_model=None):
         """Initializes the architecture of the LSTM and returns an instance.
 
