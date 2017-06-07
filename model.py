@@ -9,15 +9,15 @@ import os
 
 
 class LSTM(object):
-    def __init__(self, num_steps, embedding_size, seed=None, load_model=None):
+    def __init__(self, embedding_size, num_steps, seed=None, load_model=None):
         """Initializes the architecture of the LSTM and returns an instance.
 
         Args:
+            embedding_size: An integer that is equal to the size of the vectors used to embed the input elements.
+                            Example: 10,000 for 10,000 unique words in the vocabulary
             num_steps:      An integer that is the number of unrolled steps that the LSTM takes. This is not (usually)
                             the length of the actual sequence. This number is related to the ability of the LSTM to
                             understand long-term dependencies in the data.
-            embedding_size: An integer that is equal to the size of the vectors used to embed the input elements.
-                            Example: 10,000 for 10,000 unique words in the vocabulary
             seed:           An integer used to seed the initial random state. Can be None to generate a new random seed.
             load_model:     If not None, then this should be a string indicating the checkpoint file containing data
                             that will be used to initialize the parameters of the model. Typically used when loading a
@@ -42,19 +42,20 @@ class LSTM(object):
                 self._hot = tf.one_hot(indices=self._x, depth=embedding_size, name='Hot')  # X as one-hot encoded
 
             with tf.variable_scope('Unrolled') as scope:
-                lstm_cell = tf.contrib.rnn.BasicLSTMCell(num_units=256)  # This defines the cell structure
+                lstm_cell = tf.contrib.rnn.BasicLSTMCell(num_units=10)  # This defines the cell structure
                 state = lstm_cell.zero_state(batch_size=tf.shape(self._x)[0], dtype=tf.float32)  # Initial state
 
                 # Unroll the graph num_steps back into the "past"
                 for i in range(num_steps):
                     if i > 0: scope.reuse_variables()  # Reuse the variables created in the 1st LSTM cell
                     output, state = lstm_cell(self._hot[:, i, :], state)  # Step the LSTM through the sequence
+                final_output = output
 
             with tf.variable_scope('Softmax'):
                 # Parameters
                 w = tf.Variable(tf.random_normal((lstm_cell.output_size, embedding_size), stddev=0.1, name='Weights'))
                 b = tf.Variable(tf.random_normal((embedding_size,), stddev=0.1, name='Bias'))
-                scores = tf.matmul(output, w) + b  # The raw class scores to be fed into the loss function
+                scores = tf.matmul(final_output, w) + b  # The raw class scores to be fed into the loss function
                 self._y_hat = tf.nn.softmax(scores, name='Y-Hat')  # Class probabilities, (batch_size, embedding_size)
                 self._prediction = tf.argmax(self._y_hat, axis=1, name='Prediction')  # Vector of predicted classes
 
