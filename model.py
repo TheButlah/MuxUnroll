@@ -76,7 +76,9 @@ class LSTM(object):
                 self._train_step = tf.train.AdamOptimizer(learning_rate=0.01).minimize(self._loss)  # Optimizer
 
             with tf.variable_scope('Summaries'):
-                loss_summary = tf.summary.scalar('Loss', self._loss)
+                tf.summary.scalar('Loss', self._loss)
+                tf.summary.histogram('Weights', w)
+                tf.summary.image('Weights', tf.expand_dims(tf.expand_dims(w, 0), -1))  # Visualize softmax weights
                 self._summaries = tf.summary.merge_all()
 
             self._sess = tf.Session()

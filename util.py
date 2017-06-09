@@ -5,6 +5,8 @@ from __future__ import absolute_import
 import tensorflow as tf
 import sys
 
+from time import time
+
 
 def batch_norm(x, shape, axes, phase_train, decay=0.5, scope='BN'):
     """
