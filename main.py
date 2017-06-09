@@ -3,6 +3,7 @@ from __future__ import division
 from __future__ import absolute_import
 
 import numpy as np
+import tensorflow as tf
 
 from sklearn.model_selection import train_test_split
 from model import LSTM
@@ -19,7 +20,11 @@ def main():
     embedding_size = 10  # The number of unique elements in our "Vocabulary", in this case all 10 digits.
 
     np.random.seed(seed)
-    model = LSTM(embedding_size, backprop_steps, seed=seed)  # Initialize the model architecture, but do not pass data
+
+    config = tf.ConfigProto()
+    config.gpu_options.allow_growth=True  # Make it so that the program does not grab all GPUs' memory at start
+
+    model = LSTM(embedding_size, backprop_steps, seed=seed, config=config)  # Initialize the model architecture, but do not pass data
 
     # Generate the input as a random arrangement of 9 digits, with the output being the one digit that did not appear
     data = np.empty((batch_size, sequence_length))

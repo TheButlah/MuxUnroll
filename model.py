@@ -15,7 +15,7 @@ class LSTM(object):
     problem by managing its internal cell state with forget, input, and output gates.
     """
 
-    def __init__(self, embedding_size, num_steps, seed=None, load_model=None):
+    def __init__(self, embedding_size, num_steps, seed=None, load_model=None, config=None):
         """Initializes the architecture of the LSTM and returns an instance.
 
         Args:
@@ -28,6 +28,7 @@ class LSTM(object):
             load_model:     If not None, then this should be a string indicating the checkpoint file containing data
                             that will be used to initialize the parameters of the model. Typically used when loading a
                             pre-trained model, or resuming a previous training session.
+            config:         A ConfigProto that can configure the TensorFlow session. Only use if you know what it is.
         """
         print("Constructing Architecture...")
         self._embedding_size = embedding_size
@@ -36,7 +37,7 @@ class LSTM(object):
 
         self._last_time = 0  # Used by train to keep track of time
         self._iter_count = 0  # Used by train to keep track of iterations
-        self._needs_update = True  # Used by train to indicate when enough time has passed to update summaries/stdout
+        self._needs_update = False  # Used by train to indicate when enough time has passed to update summaries/stdout
         self._summary_writer = None  # Used by train to write summaries
 
         self._graph = tf.Graph()
@@ -81,7 +82,7 @@ class LSTM(object):
                 tf.summary.image('Weights', tf.expand_dims(tf.expand_dims(w, 0), -1))  # Visualize softmax weights
                 self._summaries = tf.summary.merge_all()
 
-            self._sess = tf.Session()
+            self._sess = tf.Session(config=config)
             with self._sess.as_default():
                 self._saver = tf.train.Saver()
                 if load_model is not None:
