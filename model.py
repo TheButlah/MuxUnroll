@@ -6,7 +6,6 @@ import os
 import tensorflow as tf
 
 from time import time, strftime
-from tensorflow.python.client import timeline
 
 
 class LSTM(object):
@@ -194,13 +193,5 @@ class LSTM(object):
             path = self._saver.save(self._sess, save_path)
             print("Model successfully saved in file: %s" % path)
 
-    def _run_session(self, fetches, feed_dict=None,
-                     options=tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE),
-                     run_metadata=tf.RunMetadata()):
-        result = self._sess.run(fetches, feed_dict=feed_dict, options=options, run_metadata=run_metadata)
-        if self._needs_update:
-            fetched_timeline = timeline.Timeline(run_metadata.step_stats)
-            chrome_trace = fetched_timeline.generate_chrome_trace_format()
-            with open('timeline_02_step_%d.json' % self._iter_count, 'w') as f:
-                f.write(chrome_trace)
-        return result
+    def _run_session(self, fetches, feed_dict=None, options=None, run_metadata=None):
+        return self._sess.run(fetches, feed_dict=feed_dict, options=options, run_metadata=run_metadata)
