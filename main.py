@@ -8,6 +8,7 @@ import tensorflow as tf
 from sklearn.model_selection import train_test_split
 from model import LSTM
 from util import print_examples
+from tensorflow.python.client import timeline
 
 
 def main():
@@ -21,8 +22,11 @@ def main():
 
     np.random.seed(seed)
 
-    config = tf.ConfigProto()
-    config.gpu_options.allow_growth=True  # Make it so that the program does not grab all GPUs' memory at start
+    config = None
+    import os
+    os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+    #config = tf.ConfigProto()
+    #config.gpu_options.allow_growth=True  # Make it so that the program does not grab all GPUs' memory at start
 
     model = LSTM(embedding_size, backprop_steps, seed=seed, config=config)  # Initialize the model architecture, but do not pass data
 

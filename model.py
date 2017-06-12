@@ -2,10 +2,11 @@ from __future__ import print_function
 from __future__ import division
 from __future__ import absolute_import
 
+import os
 import tensorflow as tf
 
 from time import time, strftime
-import os
+from tensorflow.python.client import timeline
 
 
 class LSTM(object):
@@ -143,7 +144,7 @@ class LSTM(object):
                         num_elements = 2  # Don't include summaries
 
                 # Feed the data into the graph and run one step of the computation
-                outputs = self._sess.run(graph_elements[:num_elements], feed_dict={self._x: x_train, self._y: y_train})
+                outputs = self._run_session(graph_elements[:num_elements], feed_dict={self._x: x_train, self._y: y_train})
                 loss_val = outputs[0]  # Unpack the loss_val from the outputs
 
                 if progress_info and self._needs_update:  # Only print progress when needed
@@ -174,7 +175,7 @@ class LSTM(object):
             Example: result.shape is [batch_size, 100] when there are 100 unique words in the chosen dictionary.
         """
         with self._sess.as_default():
-            return self._sess.run(self._y_hat, feed_dict={self._x: x_data})
+            return self._run_session(self._y_hat, feed_dict={self._x: x_data})
 
     def save_model(self, save_path=None):
         """Saves the model in the specified file.
@@ -192,3 +193,14 @@ class LSTM(object):
             save_path = os.path.abspath(save_path)
             path = self._saver.save(self._sess, save_path)
             print("Model successfully saved in file: %s" % path)
+
+    def _run_session(self, fetches, feed_dict=None,
+                     options=tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE),
+                     run_metadata=tf.RunMetadata()):
+        result = self._sess.run(fetches, feed_dict=feed_dict, options=options, run_metadata=run_metadata)
+        if self._needs_update:
+            fetched_timeline = timeline.Timeline(run_metadata.step_stats)
+            chrome_trace = fetched_timeline.generate_chrome_trace_format()
+            with open('timeline_02_step_%d.json' % self._iter_count, 'w') as f:
+                f.write(chrome_trace)
+        return result
