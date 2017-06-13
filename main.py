@@ -9,6 +9,7 @@ import tensorflow as tf
 from sklearn.model_selection import train_test_split
 from model import LSTM
 from util import print_examples
+from time import time
 
 
 def main():
@@ -40,9 +41,10 @@ def main():
     x_train, x_test, y_train, y_test = train_test_split(  # Split into training and testing sets
         x, y, train_size=0.2, random_state=seed
     )
-
+    start_time = time()
     # This actually trains the model on a single batch, which in our case is the entirety of the training data.
     model.train(x_train, y_train, num_epochs=num_epochs, log_dir='logs/')
+    elapsed_time = time() - start_time
 
     print_examples(model, np.array(  # Apply the model to several example inputs
         [[1,2,3,4,5,6,7,8,9]
@@ -56,6 +58,7 @@ def main():
     results = model.apply(x_test)
     print("Testing Accuracy: ", np.equal(np.argmax(results, axis=1), y_test).astype(np.float32).mean())
 
+    print("Training Duration: ", elapsed_time)
 
 if __name__ == "__main__":
     main()
