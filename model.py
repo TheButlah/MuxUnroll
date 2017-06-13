@@ -46,8 +46,20 @@ class LSTM(object):
             batch_size = None  # Although this variable is never modified, it is present to enhance code readability
 
             with tf.variable_scope('Inputs'):
-                self._x = tf.placeholder(tf.int32, shape=(batch_size, num_steps), name='X')
-                self._y = tf.placeholder(tf.int32, shape=(batch_size,), name='Y')
+                x_shape = (batch_size, num_steps)
+                y_shape = (batch_size,)
+                # Initial variable values, only need to be passed when data changes (different batch)
+                self._x_initial = tf.placeholder(tf.int32, shape=x_shape, name='X-Initial')
+                self._y_initial = tf.placeholder(tf.int32, shape=y_shape, name='Y-Initial')
+
+                # The collections=[] ensures that they do not get initialized with the other vars
+                self._x = tf.Variable(self._x_initial, trainable=False, collections=[], validate_shape=False, name='X')
+                self._y = tf.Variable(self._y_initial, trainable=False, collections=[], validate_shape=False, name='Y')
+
+                # Need to manually assign shape. Normally the variable constructor would do this already, but we needed
+                # to disable it so that so we could dynamically change the shape when the model is trained/applied
+                self._x.set_shape(x_shape)
+                self._y.set_shape(y_shape)
 
                 self._hot = tf.one_hot(indices=self._x, depth=embedding_size, name='Hot')  # X as one-hot encoded
 
@@ -134,6 +146,12 @@ class LSTM(object):
                     print("Run \"tensorboard --logdir=path/to/log-directory\" to view the summaries.")
                     self._summary_writer = tf.summary.FileWriter(log_dir, graph=self._graph)
 
+            # Pass the initial values for X and Y in
+            self._run_session(
+                [self._x.initializer, self._y.initializer],
+                feed_dict={self._x_initial: x_train, self._y_initial: y_train}
+            )
+
             for epoch in range(num_epochs):
                 # We need to decide whether to enable the summaries or not to save on computation
                 if self._needs_update:
@@ -142,8 +160,9 @@ class LSTM(object):
                     else:
                         num_elements = 2  # Don't include summaries
 
-                # Feed the data into the graph and run one step of the computation
-                outputs = self._run_session(graph_elements[:num_elements], feed_dict={self._x: x_train, self._y: y_train})
+                # Feed the data into the graph and run one step of the computation. Note that the training data
+                # doesn't need to be re-fed once initially passed! This prevents having to waste time transferring data
+                outputs = self._run_session(graph_elements[:num_elements])
                 loss_val = outputs[0]  # Unpack the loss_val from the outputs
 
                 if progress_info and self._needs_update:  # Only print progress when needed
@@ -194,4 +213,5 @@ class LSTM(object):
             print("Model successfully saved in file: %s" % path)
 
     def _run_session(self, fetches, feed_dict=None, options=None, run_metadata=None):
+        """Helper function to run the session. Useful for when enabling profiling."""
         return self._sess.run(fetches, feed_dict=feed_dict, options=options, run_metadata=run_metadata)
