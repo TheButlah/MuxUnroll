@@ -27,7 +27,8 @@ def main():
     config = tf.ConfigProto()
     config.gpu_options.allow_growth=True  # Make it so that the program does not grab all GPUs' memory at start
 
-    model = LSTM(embedding_size, backprop_steps, seed=seed, config=config)  # Initialize the model architecture, but do not pass data
+    # Initialize the model architecture, but do not pass data
+    model = LSTM(embedding_size, backprop_steps, cell_size=10, seed=seed, config=config)
 
     # Generate the input as a random arrangement of 9 digits, with the output being the one digit that did not appear
     data = np.empty((batch_size, sequence_length))

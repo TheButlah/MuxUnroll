@@ -15,7 +15,7 @@ class LSTM(object):
     problem by managing its internal cell state with forget, input, and output gates.
     """
 
-    def __init__(self, embedding_size, num_steps, seed=None, load_model=None, config=None):
+    def __init__(self, embedding_size, num_steps, cell_size=128, seed=None, load_model=None, config=None):
         """Initializes the architecture of the LSTM and returns an instance.
 
         Args:
@@ -24,6 +24,8 @@ class LSTM(object):
             num_steps:      An integer that is the number of unrolled steps that the LSTM takes. This is not (usually)
                             the length of the actual sequence. This number is related to the ability of the LSTM to
                             understand long-term dependencies in the data.
+            cell_size       An integer that is equal to the size of the LSTM cell. This is directly related to the
+                            state size and number of parameters of the cell.
             seed:           An integer used to seed the initial random state. Can be None to generate a new random seed.
             load_model:     If not None, then this should be a string indicating the checkpoint file containing data
                             that will be used to initialize the parameters of the model. Typically used when loading a
@@ -34,6 +36,7 @@ class LSTM(object):
         self._embedding_size = embedding_size
         self._seed = seed
         self._num_steps = num_steps  # Tuples are used to ensure the dimensions are immutable
+        self._cell_size = cell_size
 
         self._last_time = 0  # Used by train to keep track of time
         self._iter_count = 0  # Used by train to keep track of iterations
@@ -43,11 +46,10 @@ class LSTM(object):
         self._graph = tf.Graph()
         with self._graph.as_default():
             tf.set_random_seed(seed)
-            batch_size = None  # Although this variable is never modified, it is present to enhance code readability
 
             with tf.variable_scope('Inputs'):
-                x_shape = (batch_size, num_steps)
-                y_shape = (batch_size,)
+                x_shape = (None, num_steps)  # Batch, sequence
+                y_shape = (None,)  # Batch
                 # Initial variable values, only need to be passed when data changes (different batch)
                 self._x_initial = tf.placeholder(tf.int32, shape=x_shape, name='X-Initial')
                 self._y_initial = tf.placeholder(tf.int32, shape=y_shape, name='Y-Initial')
@@ -55,6 +57,9 @@ class LSTM(object):
                 # The collections=[] ensures that they do not get initialized with the other vars
                 self._x = tf.Variable(self._x_initial, trainable=False, collections=[], validate_shape=False, name='X')
                 self._y = tf.Variable(self._y_initial, trainable=False, collections=[], validate_shape=False, name='Y')
+
+                batch_size = tf.shape(self._x)[0]  # Note that this is a scalar tensor
+                self.batch_size = batch_size
 
                 # Need to manually assign shape. Normally the variable constructor would do this already, but we needed
                 # to disable it so that so we could dynamically change the shape when the model is trained/applied
@@ -64,8 +69,8 @@ class LSTM(object):
                 self._hot = tf.one_hot(indices=self._x, depth=embedding_size, name='Hot')  # X as one-hot encoded
 
             with tf.variable_scope('Unrolled') as scope:
-                lstm_cell = tf.contrib.rnn.BasicLSTMCell(num_units=10)  # This defines the cell structure
-                state = lstm_cell.zero_state(batch_size=tf.shape(self._x)[0], dtype=tf.float32)  # Initial state
+                lstm_cell = tf.contrib.rnn.BasicLSTMCell(num_units=cell_size)  # This defines the cell structure
+                state = lstm_cell.zero_state(batch_size=batch_size, dtype=tf.float32)  # Initial state
 
                 # Unroll the graph num_steps back into the "past"
                 for i in range(num_steps):
@@ -137,8 +142,8 @@ class LSTM(object):
             # Training loop for parameter tuning
             if start_stop_info: print("Starting training for %d epochs" % num_epochs)
 
-            graph_elements = (self._loss, self._train_step, self._summaries)  # These will be passed into sess.run()
-            num_elements = 2  # This will be used as the stop index when indexing graph_elements
+            # These will be passed into sess.run(), the first should be loss and last should be summaries.
+            graph_elements = (self._loss, self._train_step, self._summaries)
 
             if log_dir is not None:
                 if self._summary_writer is None:
@@ -154,22 +159,22 @@ class LSTM(object):
 
             for epoch in range(num_epochs):
                 # We need to decide whether to enable the summaries or not to save on computation
-                if self._needs_update:
-                    if log_dir is not None:
-                        num_elements = 3  # Include summaries
-                    else:
-                        num_elements = 2  # Don't include summaries
+                if self._needs_update and log_dir is not None:
+                    chosen_elements = None  # Include summaries
+                else:
+                    chosen_elements = -1  # Don't include summaries
 
                 # Feed the data into the graph and run one step of the computation. Note that the training data
                 # doesn't need to be re-fed once initially passed! This prevents having to waste time transferring data
-                outputs = self._run_session(graph_elements[:num_elements])
+                outputs = self._run_session(graph_elements[:chosen_elements])
+
                 loss_val = outputs[0]  # Unpack the loss_val from the outputs
 
                 if progress_info and self._needs_update:  # Only print progress when needed
                     print("Current Loss Value: %.10f, Percent Complete: %.4f" % (loss_val, epoch / num_epochs * 100))
 
                 if self._needs_update and log_dir is not None:  # Only compute summaries when needed
-                    self._summary_writer.add_summary(outputs[2], self._iter_count)
+                    self._summary_writer.add_summary(outputs[-1], self._iter_count)
 
                 current_time = time()
                 if (current_time - self._last_time) >= 5:  # Update logs/progress every 5 seconds
