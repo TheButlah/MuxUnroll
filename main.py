@@ -13,9 +13,10 @@ from time import time
 
 
 def main():
+    time_major = True
     seed = 1337
     batch_size = 1000
-    num_epochs = 10000
+    num_epochs = 2000
     sequence_length = 10
     # In our architecture, the graph is unfolded backprop_steps
     backprop_steps = sequence_length-1
@@ -28,7 +29,7 @@ def main():
     config.gpu_options.allow_growth=True  # Make it so that the program does not grab all GPUs' memory at start
 
     # Initialize the model architecture, but do not pass data
-    model = LSTM(embedding_size, backprop_steps, cell_size=10, seed=seed, config=config)
+    model = LSTM(embedding_size, backprop_steps, cell_size=10, time_major=time_major, seed=seed, config=config)
 
     # Generate the input as a random arrangement of 9 digits, with the output being the one digit that did not appear
     data = np.empty((batch_size, sequence_length))
@@ -39,19 +40,27 @@ def main():
     x = data[:, :-1]  # Shape: (batch_size, backprop_steps)
     y = data[:, -1]  # Shape: (batch_size)
 
-    x_train, x_test, y_train, y_test = train_test_split(  # Split into training and testing sets
+    datasets = train_test_split(  # Split into training and testing sets
         x, y, train_size=0.2, random_state=seed
     )
+
+    explicit_examples = np.array(  # Apply the model to several example inputs
+        [[1,2,3,4,5,6,7,8,9]
+        ,[4,5,6,7,8,9,0,1,2]
+        ,[9,8,7,6,5,4,3,2,1]]
+    )
+
+    x_train, x_test, y_train, y_test, explicit_examples = format_for_model(
+        datasets + [explicit_examples],
+        should_transpose=time_major  # if time_major, then transpose batch and time dims to be time_major
+    )
+
     start_time = time()
     # This actually trains the model on a single batch, which in our case is the entirety of the training data.
     model.train(x_train, y_train, num_epochs=num_epochs, log_dir='logs/')
     elapsed_time = time() - start_time
 
-    print_examples(model, np.array(  # Apply the model to several example inputs
-        [[1,2,3,4,5,6,7,8,9]
-        ,[4,5,6,7,8,9,0,1,2]
-        ,[9,8,7,6,5,4,3,2,1]]
-    ))
+    print_examples(model, explicit_examples)
 
     results = model.apply(x_train)
     print("Training Accuracy: ", np.equal(np.argmax(results, axis=1), y_train).astype(np.float32).mean())
@@ -60,6 +69,11 @@ def main():
     print("Testing Accuracy: ", np.equal(np.argmax(results, axis=1), y_test).astype(np.float32).mean())
 
     print("Training Duration: ", elapsed_time)
+
+
+def format_for_model(the_list, should_transpose=False):
+    """Helper function to transpose the batch and time dims of each element in `the_list`"""
+    return [x.T for x in the_list] if should_transpose else the_list
 
 if __name__ == "__main__":
     main()

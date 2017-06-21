@@ -15,7 +15,7 @@ class LSTM(object):
     problem by managing its internal cell state with forget, input, and output gates.
     """
 
-    def __init__(self, embedding_size, num_steps, cell_size=128, seed=None, load_model=None, config=None):
+    def __init__(self, embedding_size, num_steps, cell_size=128, time_major=True, seed=None, load_model=None, config=None):
         """Initializes the architecture of the LSTM and returns an instance.
 
         Args:
@@ -24,8 +24,10 @@ class LSTM(object):
             num_steps:      An integer that is the number of unrolled steps that the LSTM takes. This is not (usually)
                             the length of the actual sequence. This number is related to the ability of the LSTM to
                             understand long-term dependencies in the data.
-            cell_size       An integer that is equal to the size of the LSTM cell. This is directly related to the
+            cell_size:       An integer that is equal to the size of the LSTM cell. This is directly related to the
                             state size and number of parameters of the cell.
+            time_major:     A boolean used to determine whether the first dimension of the data is the batch or time
+                            dimension. Using time as the first dimension is more efficient.
             seed:           An integer used to seed the initial random state. Can be None to generate a new random seed.
             load_model:     If not None, then this should be a string indicating the checkpoint file containing data
                             that will be used to initialize the parameters of the model. Typically used when loading a
@@ -48,8 +50,9 @@ class LSTM(object):
             tf.set_random_seed(seed)
 
             with tf.variable_scope('Inputs'):
-                x_shape = (None, num_steps)  # Batch, sequence
+                x_shape = (num_steps, None) if time_major else (None, num_steps)
                 y_shape = (None,)  # Batch
+
                 # Initial variable values, only need to be passed when data changes (different batch)
                 self._x_initial = tf.placeholder(tf.int32, shape=x_shape, name='X-Initial')
                 self._y_initial = tf.placeholder(tf.int32, shape=y_shape, name='Y-Initial')
@@ -58,7 +61,7 @@ class LSTM(object):
                 self._x = tf.Variable(self._x_initial, trainable=False, collections=[], validate_shape=False, name='X')
                 self._y = tf.Variable(self._y_initial, trainable=False, collections=[], validate_shape=False, name='Y')
 
-                batch_size = tf.shape(self._x)[0]  # Note that this is a scalar tensor
+                batch_size = tf.shape(self._x)[-1 if time_major else 0]  # Note that this is a scalar tensor
                 self.batch_size = batch_size
 
                 # Need to manually assign shape. Normally the variable constructor would do this already, but we needed
@@ -70,12 +73,26 @@ class LSTM(object):
 
             with tf.variable_scope('Unrolled') as scope:
                 lstm_cell = tf.contrib.rnn.BasicLSTMCell(num_units=cell_size)  # This defines the cell structure
-                state = lstm_cell.zero_state(batch_size=batch_size, dtype=tf.float32)  # Initial state
+                initial_state = state = lstm_cell.zero_state(batch_size=batch_size, dtype=tf.float32)  # Initial state
+
+                '''outputs, states = tf.nn.dynamic_rnn(
+                    lstm_cell, self._hot,
+                    sequence_length=tf.fill(tf.expand_dims(batch_size, axis=-1), num_steps, name='Sequence-Lengths'),
+                    initial_state=initial_state,
+                    time_major=time_major,
+                    scope=scope
+                )
+                
+                final_output = outputs[-1, ...] if time_major else outputs[:, -1, ...]'''
 
                 # Unroll the graph num_steps back into the "past"
                 for i in range(num_steps):
                     if i > 0: scope.reuse_variables()  # Reuse the variables created in the 1st LSTM cell
-                    output, state = lstm_cell(self._hot[:, i, :], state)  # Step the LSTM through the sequence
+                    output, state = lstm_cell(  # Step the LSTM through the sequence
+                        self._hot[i, ...] if time_major else self._hot[:, i, :],
+                        state
+                    )
+
                 final_output = output
 
             with tf.variable_scope('Softmax'):
