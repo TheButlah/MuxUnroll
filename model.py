@@ -75,7 +75,8 @@ class LSTM(object):
                 lstm_cell = tf.contrib.rnn.BasicLSTMCell(num_units=cell_size)  # This defines the cell structure
                 initial_state = lstm_cell.zero_state(batch_size=batch_size, dtype=tf.float32)  # Initial state
 
-                outputs, states = tf.nn.dynamic_rnn(
+                inputs = tf.unstack(self._hot, axis=0 if time_major else 1)
+                '''outputs, states = tf.nn.dynamic_rnn(
                     lstm_cell, self._hot,
                     sequence_length=tf.fill(tf.expand_dims(batch_size, axis=-1), num_steps, name='Sequence-Lengths'),
                     initial_state=initial_state,
@@ -83,7 +84,16 @@ class LSTM(object):
                     scope=scope
                 )
                 
-                final_output = outputs[-1, ...] if time_major else outputs[:, -1, ...]
+                final_output = outputs[-1, ...] if time_major else outputs[:, -1, ...]'''
+
+                outputs, states = tf.nn.static_rnn(
+                    lstm_cell, inputs,
+                    # sequence_length=tf.fill(tf.expand_dims(batch_size, axis=-1), num_steps, name='Sequence-Lengths'),
+                    initial_state=initial_state,
+                    scope=scope
+                )
+
+                final_output = outputs[-1]
 
             with tf.variable_scope('Softmax'):
                 # Parameters
@@ -123,8 +133,8 @@ class LSTM(object):
         """Trains the model using the data provided as a batch.
 
         It is often infeasible to load the entire dataset into memory. For this reason, the selection of batches is left
-        up to the user, so that s/he can load the proper amount of data. Because the loss is averaged over the batch,
-        a larger batch size will result in a more stable training process with potentially better results when applying
+        up to the user, so that s/he can load the proper amount of data. Because the loss is averaged over  batch, a
+        larger batch size will result in a more stable training process with potentially better results when applying
         the model, although having a smaller batch size means less memory consumption and sometimes faster training.
 
         Args:
