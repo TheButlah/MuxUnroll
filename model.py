@@ -73,9 +73,9 @@ class LSTM(object):
 
             with tf.variable_scope('Unrolled') as scope:
                 lstm_cell = tf.contrib.rnn.BasicLSTMCell(num_units=cell_size)  # This defines the cell structure
-                initial_state = state = lstm_cell.zero_state(batch_size=batch_size, dtype=tf.float32)  # Initial state
+                initial_state = lstm_cell.zero_state(batch_size=batch_size, dtype=tf.float32)  # Initial state
 
-                '''outputs, states = tf.nn.dynamic_rnn(
+                outputs, states = tf.nn.dynamic_rnn(
                     lstm_cell, self._hot,
                     sequence_length=tf.fill(tf.expand_dims(batch_size, axis=-1), num_steps, name='Sequence-Lengths'),
                     initial_state=initial_state,
@@ -83,17 +83,7 @@ class LSTM(object):
                     scope=scope
                 )
                 
-                final_output = outputs[-1, ...] if time_major else outputs[:, -1, ...]'''
-
-                # Unroll the graph num_steps back into the "past"
-                for i in range(num_steps):
-                    if i > 0: scope.reuse_variables()  # Reuse the variables created in the 1st LSTM cell
-                    output, state = lstm_cell(  # Step the LSTM through the sequence
-                        self._hot[i, ...] if time_major else self._hot[:, i, :],
-                        state
-                    )
-
-                final_output = output
+                final_output = outputs[-1, ...] if time_major else outputs[:, -1, ...]
 
             with tf.variable_scope('Softmax'):
                 # Parameters
