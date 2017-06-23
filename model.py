@@ -75,16 +75,19 @@ class LSTM(object):
                 lstm_cell = tf.contrib.rnn.BasicLSTMCell(num_units=cell_size)  # This defines the cell structure
                 initial_state = lstm_cell.zero_state(batch_size=batch_size, dtype=tf.float32)  # Initial state
 
-                inputs = tf.unstack(self._hot, axis=0 if time_major else 1)
-                '''outputs, states = tf.nn.dynamic_rnn(
+                outputs, states = tf.nn.dynamic_rnn(
                     lstm_cell, self._hot,
-                    sequence_length=tf.fill(tf.expand_dims(batch_size, axis=-1), num_steps, name='Sequence-Lengths'),
+                    sequence_length=tf.random_uniform(
+                        shape=(batch_size,), minval=1, maxval=num_steps+1, dtype=tf.int32, name='Sequence-Lengths'
+                    ),
                     initial_state=initial_state,
                     time_major=time_major,
                     scope=scope
                 )
                 
-                final_output = outputs[-1, ...] if time_major else outputs[:, -1, ...]'''
+                final_output = outputs[-1, ...] if time_major else outputs[:, -1, ...]
+
+                '''inputs = tf.unstack(self._hot, axis=0 if time_major else 1)
 
                 outputs, states = tf.nn.static_rnn(
                     lstm_cell, inputs,
@@ -93,7 +96,7 @@ class LSTM(object):
                     scope=scope
                 )
 
-                final_output = outputs[-1]
+                final_output = outputs[-1]'''
 
             with tf.variable_scope('Softmax'):
                 # Parameters
