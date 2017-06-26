@@ -31,10 +31,11 @@ def main():
     # Initialize the model architecture, but do not pass data
     model = LSTM(embedding_size, backprop_steps, cell_size=10, time_major=time_major, seed=seed, config=config)
 
-    # Generate the input as a random arrangement of 9 digits, with the output being the one digit that did not appear
+    # Generate random permutations of base `embedding_size` digits, with the output being the one that did not appear.
+    # For this problem to make any sense, sequence_length should be equal to embedding_size
     data = np.empty((batch_size, sequence_length))
     for i in range(batch_size):
-        data[i] = np.random.choice(10, size=(10,), replace=False)
+        data[i] = np.random.choice(embedding_size, size=(sequence_length,), replace=True)
 
     # Separate data and labels
     x = data[:, :-1]  # Shape: (batch_size, backprop_steps)
@@ -60,7 +61,7 @@ def main():
     model.train(x_train, y_train, num_epochs=num_epochs, log_dir='logs/')
     elapsed_time = time() - start_time
 
-    print_examples(model, explicit_examples)
+    # print_examples(model, explicit_examples)
 
     results = model.apply(x_train)
     print("Training Accuracy: ", np.equal(np.argmax(results, axis=1), y_train).astype(np.float32).mean())

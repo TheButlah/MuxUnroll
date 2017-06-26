@@ -6,7 +6,6 @@ import os
 import tensorflow as tf
 
 from time import time, strftime
-from util import eprint
 
 
 class LSTM(object):
