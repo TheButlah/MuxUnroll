@@ -25,7 +25,7 @@ class LSTM(object):
             num_steps:      An integer that is the number of unrolled steps that the LSTM takes. This is not (usually)
                             the length of the actual sequence. This number is related to the ability of the LSTM to
                             understand long-term dependencies in the data.
-            cell_size:       An integer that is equal to the size of the LSTM cell. This is directly related to the
+            cell_size:      An integer that is equal to the size of the LSTM cell. This is directly related to the
                             state size and number of parameters of the cell.
             time_major:     A boolean used to determine whether the first dimension of the data is the batch or time
                             dimension. Using time as the first dimension is more efficient.
