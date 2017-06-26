@@ -6,6 +6,7 @@ import os
 import tensorflow as tf
 
 from time import time, strftime
+from util import eprint
 
 
 class LSTM(object):
@@ -15,7 +16,8 @@ class LSTM(object):
     problem by managing its internal cell state with forget, input, and output gates.
     """
 
-    def __init__(self, embedding_size, num_steps, cell_size=128, time_major=True, seed=None, load_model=None, config=None):
+    def __init__(self, embedding_size, num_steps, cell_size=128, time_major=True, bptt_method='traditional',
+                 seed=None, load_model=None, config=None):
         """Initializes the architecture of the LSTM and returns an instance.
 
         Args:
@@ -28,6 +30,9 @@ class LSTM(object):
                             state size and number of parameters of the cell.
             time_major:     A boolean used to determine whether the first dimension of the data is the batch or time
                             dimension. Using time as the first dimension is more efficient.
+            bptt_method:    A string that states the unrolling method for Back Propogation Through Time (BPTT) to use.
+                            'traditional' uses python lists and tensorflow slicing to get the input for a given time.
+                            'static' uses tf.nn.static_rnn. 'dynamic' uses tf.nn.dynamic_rnn.
             seed:           An integer used to seed the initial random state. Can be None to generate a new random seed.
             load_model:     If not None, then this should be a string indicating the checkpoint file containing data
                             that will be used to initialize the parameters of the model. Typically used when loading a
@@ -39,6 +44,10 @@ class LSTM(object):
         self._seed = seed
         self._num_steps = num_steps  # Tuples are used to ensure the dimensions are immutable
         self._cell_size = cell_size
+
+        bptt_method = bptt_method.lower()
+        if bptt_method not in ('traditional', 'dynamic', 'static'):
+            raise ValueError("`bptt_method` must be one of 'traditional', 'dynamic', or 'static' ")
 
         self._last_time = 0  # Used by train to keep track of time
         self._iter_count = 0  # Used by train to keep track of iterations
@@ -80,26 +89,47 @@ class LSTM(object):
                     shape=(batch_size,), minval=1, maxval=num_steps+1, dtype=tf.int32
                 )  # , trainable=False, validate_shape=False, collections=[], name='Sequence-Lengths')
 
-                outputs, states = tf.nn.dynamic_rnn(
-                    lstm_cell, self._hot,
-                    sequence_length=self._sequence_lengths,
-                    initial_state=initial_state,
-                    time_major=time_major,
-                    scope=scope
-                )
-                
-                final_output = outputs[-1, ...] if time_major else outputs[:, -1, ...]
+                def traditional_bptt():
+                    """Calls the lstm cell with the state and output for each time until num_steps."""
+                    state = initial_state
+                    # Unroll the graph num_steps back into the "past"
+                    for i in range(num_steps):
+                        if i > 0: scope.reuse_variables()  # Reuse the variables created in the 1st LSTM cell
+                        output, state = lstm_cell(  # Step the LSTM through the sequence
+                            self._hot[i, ...] if time_major else self._hot[:, i, ...],
+                            state
+                        )
+                    return output
 
-                '''inputs = tf.unstack(self._hot, axis=0 if time_major else 1)
+                def dynamic_bptt():
+                    """Uses dynamic_rnn to unroll the graph."""
+                    outputs, states = tf.nn.dynamic_rnn(
+                        lstm_cell, self._hot,
+                        sequence_length=self._sequence_lengths,
+                        initial_state=initial_state,
+                        time_major=time_major,
+                        scope=scope
+                    )
+                    return outputs[-1, ...] if time_major else outputs[:, -1, ...]
 
-                outputs, states = tf.nn.static_rnn(
-                    lstm_cell, inputs,
-                    # sequence_length=tf.fill(tf.expand_dims(batch_size, axis=-1), num_steps, name='Sequence-Lengths'),
-                    initial_state=initial_state,
-                    scope=scope
-                )
+                def static_bptt():
+                    """Uses static_rnn to unroll the graph"""
+                    inputs = tf.unstack(self._hot, axis=0 if time_major else 1)
 
-                final_output = outputs[-1]'''
+                    outputs, states = tf.nn.static_rnn(
+                        lstm_cell, inputs,
+                        # sequence_length=tf.fill(tf.expand_dims(batch_size, axis=-1), num_steps, name='Sequence-Lengths'),
+                        initial_state=initial_state,
+                        scope=scope
+                    )
+                    return outputs[-1]
+
+                # Emulate a switch statement
+                final_output = {
+                    'traditional': traditional_bptt,
+                    'dynamic': dynamic_bptt,
+                    'static': static_bptt
+                }.get(bptt_method)()
 
             with tf.variable_scope('Softmax'):
                 # Parameters
@@ -171,7 +201,7 @@ class LSTM(object):
             if start_stop_info: print("Starting training for %d epochs" % num_epochs)
 
             # These will be passed into sess.run(), the first should be loss and last should be summaries.
-            graph_elements = (self._loss, self._train_step, self._summaries)
+            graph_elements = (self._loss, self._train_step, self._sequence_lengths, self._summaries)
 
             if log_dir is not None:
                 if self._summary_writer is None:
