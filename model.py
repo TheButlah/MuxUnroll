@@ -76,9 +76,9 @@ class LSTM(object):
                 lstm_cell = tf.contrib.rnn.BasicLSTMCell(num_units=cell_size)  # This defines the cell structure
                 initial_state = lstm_cell.zero_state(batch_size=batch_size, dtype=tf.float32)  # Initial state
 
-                self._sequence_lengths = tf.Variable(tf.random_uniform(
+                self._sequence_lengths = tf.random_uniform(
                     shape=(batch_size,), minval=1, maxval=num_steps+1, dtype=tf.int32
-                ), trainable=False, validate_shape=False, collections=[], name='Sequence-Lengths')
+                )  # , trainable=False, validate_shape=False, collections=[], name='Sequence-Lengths')
 
                 outputs, states = tf.nn.dynamic_rnn(
                     lstm_cell, self._hot,
@@ -117,9 +117,9 @@ class LSTM(object):
                 self._train_step = tf.train.AdamOptimizer(learning_rate=0.01).minimize(self._loss)  # Optimizer
 
                 # Initialize or update per-batch Variables. Should be called whenever passing a new batch. This will
-                # often be the case on each new call to train() or applu()
+                # often be the case on each new call to train() or apply()
                 with tf.control_dependencies([tf.variables_initializer([self._x, self._y], name='Init-Inputs')]):
-                    self._init_batch = tf.variables_initializer([self._sequence_lengths])
+                    self._init_batch = tf.no_op()  # tf.variables_initializer([self._sequence_lengths])
 
             with tf.variable_scope('Summaries'):
                 tf.summary.scalar('Loss', self._loss)
