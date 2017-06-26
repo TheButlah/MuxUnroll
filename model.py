@@ -117,7 +117,7 @@ class LSTM(object):
 
                     outputs, states = tf.nn.static_rnn(
                         lstm_cell, inputs,
-                        # sequence_length=tf.fill(tf.expand_dims(batch_size, axis=-1), num_steps, name='Sequence-Lengths'),
+                        sequence_length=self._sequence_lengths,
                         initial_state=initial_state,
                         scope=scope
                     )
