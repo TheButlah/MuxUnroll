@@ -4,8 +4,10 @@ from __future__ import absolute_import
 
 import os
 import tensorflow as tf
+import math
 
 from time import time, strftime
+from tensorflow.contrib.rnn import LSTMStateTuple
 
 
 class LSTM(object):
@@ -31,7 +33,8 @@ class LSTM(object):
                             dimension. Using time as the first dimension is more efficient.
             bptt_method:    A string that states the unrolling method for Back Propogation Through Time (BPTT) to use.
                             'traditional' uses python lists and tensorflow slicing to get the input for a given time.
-                            'static' uses tf.nn.static_rnn. 'dynamic' uses tf.nn.dynamic_rnn.
+                            'static' uses tf.nn.static_rnn. 'dynamic' uses tf.nn.dynamic_rnn. 'custom' is a mix of the
+                            other three, and is implemented internally.
             seed:           An integer used to seed the initial random state. Can be None to generate a new random seed.
             load_model:     If not None, then this should be a string indicating the checkpoint file containing data
                             that will be used to initialize the parameters of the model. Typically used when loading a
@@ -45,8 +48,8 @@ class LSTM(object):
         self._cell_size = cell_size
 
         bptt_method = bptt_method.lower()
-        if bptt_method not in ('traditional', 'dynamic', 'static'):
-            raise ValueError("`bptt_method` must be one of 'traditional', 'dynamic', or 'static' ")
+        if bptt_method not in ('traditional', 'dynamic', 'static', 'custom'):
+            raise ValueError("`bptt_method` must be one of 'traditional', 'dynamic', 'static', or 'custom' ")
 
         self._last_time = 0  # Used by train to keep track of time
         self._iter_count = 0  # Used by train to keep track of iterations
@@ -64,11 +67,14 @@ class LSTM(object):
                 # Initial variable values, only need to be passed when data changes (different batch)
                 self._x_initial = tf.placeholder(tf.int32, shape=x_shape, name='X-Initial')
                 self._y_initial = tf.placeholder(tf.int32, shape=y_shape, name='Y-Initial')
+                self._sequence_lengths_initial = tf.placeholder(tf.int32, shape=(None,), name='SeqLen-Initial')
 
                 # The collections=[] ensures that they do not get initialized with the other vars. Run self._init_inputs
                 # any time the inputs change (typically on each new batch passed to self.train() or self.apply()
                 self._x = tf.Variable(self._x_initial, trainable=False, collections=[], validate_shape=False, name='X')
                 self._y = tf.Variable(self._y_initial, trainable=False, collections=[], validate_shape=False, name='Y')
+                self._sequence_lengths = tf.Variable(self._sequence_lengths_initial, trainable=False, collections=[],
+                                                     validate_shape=False, name='SeqLen')
 
                 batch_size = tf.shape(self._x)[-1 if time_major else 0]  # Note that this is a scalar tensor
                 self.batch_size = batch_size
@@ -77,16 +83,23 @@ class LSTM(object):
                 # to disable it so that so we could dynamically change the shape when the model is trained/applied
                 self._x.set_shape(x_shape)
                 self._y.set_shape(y_shape)
+                self._sequence_lengths.set_shape((None,))
 
                 self._hot = tf.one_hot(indices=self._x, depth=embedding_size, name='Hot')  # X as one-hot encoded
 
             with tf.variable_scope('Unrolled') as scope:
                 lstm_cell = tf.contrib.rnn.BasicLSTMCell(num_units=cell_size)  # This defines the cell structure
                 initial_state = lstm_cell.zero_state(batch_size=batch_size, dtype=tf.float32)  # Initial state
+                max_len = int(math.ceil(0.1*num_steps))
+                print("Using max_len=%d" % max_len)
+                # self._sequence_lengths = tf.fill((batch_size,), max_len)
+                '''self._sequence_lengths = tf.random_uniform(
+                    shape=(batch_size,), minval=1, dtype=tf.int32,
+                    # maxval=num_steps + 1,
+                    maxval=max_len + 1
+                )'''  # , trainable=False, validate_shape=False, collections=[], name='Sequence-Lengths')
 
-                self._sequence_lengths = tf.random_uniform(
-                    shape=(batch_size,), minval=1, maxval=num_steps+1, dtype=tf.int32
-                )  # , trainable=False, validate_shape=False, collections=[], name='Sequence-Lengths')
+                self._max_sequence_length = tf.reduce_max(self._sequence_lengths)
 
                 def traditional_bptt():
                     """Calls the lstm cell with the state and output for each time until num_steps."""
@@ -96,8 +109,7 @@ class LSTM(object):
                         if i > 0: scope.reuse_variables()  # Reuse the variables created in the 1st LSTM cell
                         output, state = lstm_cell(  # Step the LSTM through the sequence
                             self._hot[i, ...] if time_major else self._hot[:, i, ...],
-                            state
-                        )
+                            state)
                     return output
 
                 def dynamic_bptt():
@@ -123,11 +135,36 @@ class LSTM(object):
                     )
                     return outputs[-1]
 
+                def custom_bptt():
+                    """Uses tf.while_loop to unroll graph, but doesn't use TensorArrays or tf.where"""
+                    # Initial time, used as a counter variable in the loop for the unrolling
+                    time = tf.constant(0, dtype=tf.int32, name='Time')
+
+                    def loop_body(time, _, state_t):
+                        new_output, new_state = lstm_cell(  # Step the LSTM through the sequence
+                            self._hot[time, ...] if time_major else self._hot[:, time, ...],
+                            state_t
+                        )
+                        return time+1, new_output, new_state
+
+                    _, last_output, _ = tf.while_loop(
+                        lambda time, *unused: time < self._max_sequence_length,
+                        loop_body,
+                        loop_vars=(time, tf.zeros((self.batch_size, lstm_cell.output_size)), initial_state),
+                        shape_invariants=(
+                            time.shape,
+                            tf.TensorShape((None, lstm_cell.output_size)),
+                            LSTMStateTuple(*tuple(tf.TensorShape((None, size)) for size in lstm_cell.state_size))
+                        )
+                    )
+                    return last_output
+
                 # Emulate a switch statement
                 final_output = {
                     'traditional': traditional_bptt,
                     'dynamic': dynamic_bptt,
-                    'static': static_bptt
+                    'static': static_bptt,
+                    'custom': custom_bptt
                 }.get(bptt_method)()
 
             with tf.variable_scope('Softmax'):
@@ -145,10 +182,17 @@ class LSTM(object):
                 ), name='Loss')
                 self._train_step = tf.train.AdamOptimizer(learning_rate=0.01).minimize(self._loss)  # Optimizer
 
-                # Initialize or update per-batch Variables. Should be called whenever passing a new batch. This will
+                # Initialize or update per-batch input vars. Should be called whenever passing a new batch. This will
                 # often be the case on each new call to train() or apply()
-                with tf.control_dependencies([tf.variables_initializer([self._x, self._y], name='Init-Inputs')]):
-                    self._init_batch = tf.no_op()  # tf.variables_initializer([self._sequence_lengths])
+                _init_batch = tf.variables_initializer([self._x, self._y], name='Init-Data')
+
+                # This one inits batch for constant length = num_steps
+                with tf.control_dependencies([_init_batch]):
+                    self._same_length_init = tf.no_op(name='SameLength-Init')
+
+                # Initialize batch for variable length
+                with tf.control_dependencies([_init_batch]):
+                    self._var_length_init = tf.variables_initializer([self._sequence_lengths], name='VarLength-Init')
 
             with tf.variable_scope('Summaries'):
                 tf.summary.scalar('Loss', self._loss)
@@ -169,7 +213,7 @@ class LSTM(object):
                     self._sess.run(tf.global_variables_initializer())
                     print("Model Initialized!")
 
-    def train(self, x_train, y_train, num_epochs, start_stop_info=True, progress_info=True, log_dir=None):
+    def train(self, x_train, y_train, num_epochs, lengths_train = None, start_stop_info=True, progress_info=True, log_dir=None):
         """Trains the model using the data provided as a batch.
 
         It is often infeasible to load the entire dataset into memory. For this reason, the selection of batches is left
@@ -188,6 +232,8 @@ class LSTM(object):
                 number (>1000). Otherwise keep this small (<50) so the model doesn't become skewed by the small size of
                 the provided mini-batch too quickly. It is expected that the code that selects the batch size will
                 call this train method once with each new batch (or just once if mini-batching is not necessary)
+            lengths_train:  A numpy ndarray that contains the sequence length for each element in the batch. If none,
+                training speed is a lot faster, and sequence lengths are assumed to be the full length of the time dim.
             start_stop_info:  If true, print when the training begins and ends.
             progress_info:  If true, print what the current loss and percent completion over the course of training.
             log_dir:  If not None, then this should be a string indicating where to output log files for TensorBoard.
@@ -200,7 +246,7 @@ class LSTM(object):
             if start_stop_info: print("Starting training for %d epochs" % num_epochs)
 
             # These will be passed into sess.run(), the first should be loss and last should be summaries.
-            graph_elements = (self._loss, self._train_step, self._sequence_lengths, self._summaries)
+            graph_elements = (self._loss, self._train_step, self._summaries)
 
             if log_dir is not None:
                 if self._summary_writer is None:
@@ -209,10 +255,13 @@ class LSTM(object):
                     self._summary_writer = tf.summary.FileWriter(log_dir, graph=self._graph)
 
             # Pass the initial values for X and Y in
-            self._run_session(
-                self._init_batch,
-                feed_dict={self._x_initial: x_train, self._y_initial: y_train}
-            )
+            if lengths_train is None:
+                self._run_session(
+                    self._same_length_init,
+                    feed_dict={self._x_initial: x_train, self._y_initial: y_train}
+                )
+
+            print("Max Sequence Length: ", self._run_session(self._max_sequence_length))
 
             for epoch in range(num_epochs):
                 # We need to decide whether to enable the summaries or not to save on computation

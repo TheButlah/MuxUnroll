@@ -15,8 +15,8 @@ from time import time
 def main():
     time_major = True
     seed = 1337
-    batch_size = 1000
-    num_epochs = 2000
+    batch_size = 5000
+    num_epochs = 1000
     sequence_length = 10
     # In our architecture, the graph is unfolded backprop_steps
     backprop_steps = sequence_length-1
@@ -29,13 +29,13 @@ def main():
     config.gpu_options.allow_growth=True  # Make it so that the program does not grab all GPUs' memory at start
 
     # Initialize the model architecture, but do not pass data
-    model = LSTM(embedding_size, backprop_steps, cell_size=10, time_major=time_major, seed=seed, config=config)
+    model = LSTM(embedding_size, backprop_steps, cell_size=10, time_major=time_major, bptt_method='traditional', seed=seed, config=config)
 
     # Generate random permutations of base `embedding_size` digits, with the output being the one that did not appear.
     # For this problem to make any sense, sequence_length should be equal to embedding_size
     data = np.empty((batch_size, sequence_length))
     for i in range(batch_size):
-        data[i] = np.random.choice(embedding_size, size=(sequence_length,), replace=True)
+        data[i] = np.random.choice(embedding_size, size=(sequence_length,), replace=False)
 
     # Separate data and labels
     x = data[:, :-1]  # Shape: (batch_size, backprop_steps)
@@ -58,7 +58,7 @@ def main():
 
     start_time = time()
     # This actually trains the model on a single batch, which in our case is the entirety of the training data.
-    model.train(x_train, y_train, num_epochs=num_epochs, log_dir='logs/')
+    model.train(x_train, y_train, num_epochs=num_epochs)
     elapsed_time = time() - start_time
 
     # print_examples(model, explicit_examples)
