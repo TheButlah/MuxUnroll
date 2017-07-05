@@ -41,8 +41,10 @@ def main():
     x = data[:, :-1]  # Shape: (batch_size, backprop_steps)
     y = data[:, -1]  # Shape: (batch_size)
 
+    lengths = np.full((batch_size,), backprop_steps)
+
     datasets = train_test_split(  # Split into training and testing sets
-        x, y, train_size=0.2, random_state=seed
+        x, y, lengths, train_size=0.2, random_state=seed
     )
 
     explicit_examples = np.array(  # Apply the model to several example inputs
@@ -51,22 +53,22 @@ def main():
         ,[9,8,7,6,5,4,3,2,1]]
     )
 
-    x_train, x_test, y_train, y_test, explicit_examples = format_for_model(
+    x_train, x_test, y_train, y_test, lengths_train, lengths_test, explicit_examples = format_for_model(
         datasets + [explicit_examples],
         should_transpose=time_major  # if time_major, then transpose batch and time dims to be time_major
     )
 
     start_time = time()
     # This actually trains the model on a single batch, which in our case is the entirety of the training data.
-    model.train(x_train, y_train, num_epochs=num_epochs)
+    model.train(x_train, y_train, lengths_train, num_epochs=num_epochs)
     elapsed_time = time() - start_time
 
     # print_examples(model, explicit_examples)
 
-    results = model.apply(x_train)
+    results = model.apply(x_train, lengths_train)
     print("Training Accuracy: ", np.equal(np.argmax(results, axis=1), y_train).astype(np.float32).mean())
 
-    results = model.apply(x_test)
+    results = model.apply(x_test, lengths_test)
     print("Testing Accuracy: ", np.equal(np.argmax(results, axis=1), y_test).astype(np.float32).mean())
 
     print("Training Duration: ", elapsed_time)

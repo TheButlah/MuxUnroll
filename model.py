@@ -66,11 +66,12 @@ class LSTM(object):
             with tf.variable_scope('Inputs'):
                 x_shape = (num_steps, None) if time_major else (None, num_steps)
                 y_shape = (None,)  # Batch
+                lengths_shape = (None,)
 
                 # Initial variable values, only need to be passed when data changes (different batch)
                 self._x_initial = tf.placeholder(tf.int32, shape=x_shape, name='X-Initial')
                 self._y_initial = tf.placeholder(tf.int32, shape=y_shape, name='Y-Initial')
-                self._lengths_initial = tf.placeholder(tf.int32, shape=(None,), name='Lengths-Initial')
+                self._lengths_initial = tf.placeholder(tf.int32, shape=lengths_shape, name='Lengths-Initial')
 
                 # The collections=[] ensures that they do not get initialized with the other vars. Run self._init_inputs
                 # any time the inputs change (typically on each new batch passed to self.train() or self.apply()
@@ -83,11 +84,9 @@ class LSTM(object):
                 # to disable it so that so we could dynamically change the shape when the model is trained/applied
                 self._x.set_shape(x_shape)
                 self._y.set_shape(y_shape)
-                self._lengths.set_shape((None,))
+                self._lengths.set_shape(lengths_shape)
 
-                # Have to use initialized_value() because some parts of code use this value before initialized and tf is
-                # not smart enough to understand the control flow dependencies for data before initialization.
-                self._max_sequence_length = tf.reduce_max(self._lengths.initialized_value())
+                self._max_sequence_length = tf.reduce_max(self._lengths)
                 self._batch_size = tf.shape(self._x)[-1 if time_major else 0]  # Note that this is a scalar tensor
 
                 self._hot = tf.one_hot(indices=self._x, depth=embedding_size, name='Hot')  # X as one-hot encoded
@@ -154,7 +153,7 @@ class LSTM(object):
                     return last_output
 
                 def array_bptt():
-                    input_ta = tf.TensorArray(tf.int32, size=num_steps, tensor_array_name='Inputs')
+                    input_ta = tf.TensorArray(tf.float32, size=num_steps, tensor_array_name='Inputs')
                     input_ta = input_ta.unstack(self._hot if time_major else tf.transpose(self._hot, (1,0,2)))
 
                     state = initial_state
@@ -217,7 +216,7 @@ class LSTM(object):
                 # Initialize batch for variable length. Should be called whenever passing a new batch. This will
                 # often be the case on each new call to train() or apply()
                 with tf.control_dependencies([var_length_init]):
-                    is_length_steps_correct = tf.less_equal(self._max_sequence_length, num_steps)
+                    is_length_steps_correct = tf.less_equal(tf.reduce_max(self._lengths.initialized_value()), num_steps)
                     self._var_length_init = tf.logical_and(is_input_steps_correct, is_length_steps_correct)
 
             with tf.variable_scope('Summaries'):
