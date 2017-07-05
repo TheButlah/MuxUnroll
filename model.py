@@ -94,16 +94,6 @@ class LSTM(object):
             with tf.variable_scope('Unrolled') as scope:
                 lstm_cell = tf.contrib.rnn.BasicLSTMCell(num_units=cell_size)  # This defines the cell structure
                 initial_state = lstm_cell.zero_state(batch_size=batch_size, dtype=tf.float32)  # Initial state
-                max_len = int(math.ceil(0.1*num_steps))
-                print("Using max_len=%d" % max_len)
-                # self._lengths = tf.fill((batch_size,), max_len)
-                '''self._lengths = tf.random_uniform(
-                    shape=(batch_size,), minval=1, dtype=tf.int32,
-                    # maxval=num_steps + 1,
-                    maxval=max_len + 1
-                )'''  # , trainable=False, validate_shape=False, collections=[], name='Sequence-Lengths')
-
-                self._max_sequence_length = tf.reduce_max(self._lengths)
 
                 def traditional_bptt():
                     """Calls the lstm cell with the state and output for each time until num_steps."""
