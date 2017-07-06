@@ -10,6 +10,7 @@ from sklearn.model_selection import train_test_split
 from model import LSTM
 from util import print_examples
 from time import time
+import math
 
 
 def main():
@@ -17,7 +18,7 @@ def main():
     seed = 1337
     batch_size = 5000
     num_epochs = 1000
-    sequence_length = 10
+    sequence_length = 100
     # In our architecture, the graph is unfolded backprop_steps
     backprop_steps = sequence_length-1
     embedding_size = 10  # The number of unique elements in our "Vocabulary", in this case all 10 digits.
@@ -29,23 +30,27 @@ def main():
     config.gpu_options.allow_growth=True  # Make it so that the program does not grab all GPUs' memory at start
 
     # Initialize the model architecture, but do not pass data
-    model = LSTM(embedding_size, backprop_steps, cell_size=10, time_major=time_major, bptt_method='masked', seed=seed, config=config)
+    model = LSTM(embedding_size, backprop_steps, cell_size=embedding_size,
+                 time_major=time_major, bptt_method='custom', seed=seed, config=config)
 
     # Generate random permutations of base `embedding_size` digits, with the output being the one that did not appear.
     # For this problem to make any sense, sequence_length should be equal to embedding_size
     data = np.empty((batch_size, sequence_length))
     for i in range(batch_size):
-        data[i] = np.random.choice(embedding_size, size=(sequence_length,), replace=False)
+        perm = np.random.choice(embedding_size, size=(embedding_size,), replace=False)
+        data[i, :embedding_size-1] = perm[:-1]
+        data[i, -1] = perm[-1]
 
     # Separate data and labels
     x = data[:, :-1]  # Shape: (batch_size, backprop_steps)
     y = data[:, -1]  # Shape: (batch_size)
 
-    lengths = np.full((batch_size,), backprop_steps)
+    lengths = np.full((batch_size,), embedding_size-1, dtype=np.int32)
 
     datasets = train_test_split(  # Split into training and testing sets
         x, y, lengths, train_size=0.2, random_state=seed
     )
+
 
     explicit_examples = np.array(  # Apply the model to several example inputs
         [[1,2,3,4,5,6,7,8,9]

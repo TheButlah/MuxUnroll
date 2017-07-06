@@ -6,7 +6,7 @@ import os
 import tensorflow as tf
 
 from time import time, strftime
-from tensorflow.python.ops.rnn_cell import LSTMStateTuple
+from tensorflow.contrib.rnn import LSTMStateTuple
 
 
 class LSTM(object):
@@ -39,6 +39,9 @@ class LSTM(object):
                             'stack' uses a python loop and tf.unstack
                             'where' is same as 'traditional' but uses tf.where to mask the output
                             'masked' is the same as 'traditional' but uses a Tensor as a mask multiplied to the output.
+                            'custom' is the best attempt at a fully custom dynamically unrolled yet efficient bptt
+                            implementation. It has the ability to switch between a fixed-length and variable-length
+                            graph at the python level.
             seed:           An integer used to seed the initial random state. Can be None to generate a new random seed.
             load_model:     If not None, then this should be a string indicating the checkpoint file containing data
                             that will be used to initialize the parameters of the model. Typically used when loading a
@@ -52,9 +55,10 @@ class LSTM(object):
         self._cell_size = cell_size
 
         bptt_method = bptt_method.lower()
-        if bptt_method not in ('traditional', 'dynamic', 'static', 'loop', 'array', 'stack', 'where', 'masked'):
+        if bptt_method not in ('traditional', 'dynamic', 'static', 'loop', 'array', 'stack', 'where', 'masked',
+                               'custom'):
             raise ValueError("`bptt_method` must be one of 'traditional', 'dynamic', 'static', "
-                             "'loop', 'array', 'stack', 'where', or 'masked'.")
+                             "'loop', 'array', 'stack', 'where', 'masked', or 'custom'.")
 
         self._last_time = 0  # Used by train to keep track of time
         self._iter_count = 0  # Used by train to keep track of iterations
@@ -237,6 +241,50 @@ class LSTM(object):
                         self._outputs.append(output)  # python list
                     return output
 
+                def custom_bptt():
+
+                    def dynamic_graph():
+                        # Initial time, used as a counter variable in the loop for the unrolling
+                        time = tf.constant(0, dtype=tf.int32, name='Time')
+                        zeros = tf.zeros((self._batch_size, lstm_cell.output_size))
+
+                        input_ta = tf.TensorArray(
+                            tf.float32, size=self._max_sequence_length, tensor_array_name='Inputs')
+                        output_ta = tf.TensorArray(
+                            tf.float32, size=self._max_sequence_length, tensor_array_name='Outputs')
+                        input_ta = input_ta.unstack((self._hot if time_major else
+                                                     tf.transpose(self._hot, (1, 0, 2)))[:self._max_sequence_length])
+
+                        def loop_body(time, output_ta, state):
+                            input_t = input_ta.read(time, name='Input')
+                            new_output, new_state = lstm_cell(input_t, state)
+
+                            '''cond = time < self._lengths  # Boolean Tensor, shape=(batch_size,)
+                            # Zero out when sequence is over
+                            new_output = tf.where(cond, x=new_output, y=zeros, name='Zeroed-Output')
+                            # Pass forward state for each element of LSTMStateTuple when sequence is over
+                            new_state = LSTMStateTuple(*(tf.where(cond, new_state, state, name='Passed-State')
+                                                       for new_state, state in zip(new_state, state)))'''
+
+                            return time + 1, output_ta.write(time, new_output), new_state
+
+                        _, final_output_ta, final_state = tf.while_loop(
+                            lambda time, *unused: time < self._max_sequence_length,
+                            loop_body,
+                            loop_vars=(time, output_ta, initial_state)
+
+                        )
+                        outputs = final_output_ta.stack()
+                        mask = tf.sequence_mask(self._lengths, maxlen=self._max_sequence_length,
+                                                dtype=tf.float32)  # (batch_size, num_steps)
+                        mask = tf.expand_dims(mask, axis=-1)  # (batch_size, num_steps, 1)
+                        mask = tf.transpose(mask, (1, 0, 2))  # (num_steps, batch_size, 1)
+                        outputs *= mask
+                        return outputs
+
+                    self._outputs = dynamic_graph()
+                    return self._outputs[-1]
+
                 # Emulate a switch statement
                 final_output = {
                     'traditional': traditional_bptt,
@@ -247,6 +295,7 @@ class LSTM(object):
                     'stack': stack_bptt,
                     'where': where_bptt,
                     'masked': masked_bptt,
+                    'custom': custom_bptt,
                 }.get(bptt_method)()
 
             with tf.variable_scope('Softmax'):
@@ -334,7 +383,7 @@ class LSTM(object):
             The loss value after training
         """
         with self._sess.as_default():
-            # Training loop for parameter tuning
+            # Training loop for a given batch
             if start_stop_info: print("Starting training for %d epochs" % num_epochs)
 
             # These will be passed into sess.run(), the first should be loss and last should be summaries.
