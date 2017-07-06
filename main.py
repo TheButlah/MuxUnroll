@@ -29,7 +29,7 @@ def main():
     config.gpu_options.allow_growth=True  # Make it so that the program does not grab all GPUs' memory at start
 
     # Initialize the model architecture, but do not pass data
-    model = LSTM(embedding_size, backprop_steps, cell_size=10, time_major=time_major, bptt_method='traditional', seed=seed, config=config)
+    model = LSTM(embedding_size, backprop_steps, cell_size=10, time_major=time_major, bptt_method='masked', seed=seed, config=config)
 
     # Generate random permutations of base `embedding_size` digits, with the output being the one that did not appear.
     # For this problem to make any sense, sequence_length should be equal to embedding_size

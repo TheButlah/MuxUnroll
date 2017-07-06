@@ -6,7 +6,7 @@ import os
 import tensorflow as tf
 
 from time import time, strftime
-from tensorflow.contrib.rnn import LSTMStateTuple
+from tensorflow.python.ops.rnn_cell import LSTMStateTuple
 
 
 class LSTM(object):
@@ -37,6 +37,8 @@ class LSTM(object):
                             'loop' uses a tf.while_loop and python lists
                             'array' uses a python loop and TensorArrays
                             'stack' uses a python loop and tf.unstack
+                            'where' is same as 'traditional' but uses tf.where to mask the output
+                            'masked' is the same as 'traditional' but uses a Tensor as a mask multiplied to the output.
             seed:           An integer used to seed the initial random state. Can be None to generate a new random seed.
             load_model:     If not None, then this should be a string indicating the checkpoint file containing data
                             that will be used to initialize the parameters of the model. Typically used when loading a
@@ -50,9 +52,9 @@ class LSTM(object):
         self._cell_size = cell_size
 
         bptt_method = bptt_method.lower()
-        if bptt_method not in ('traditional', 'dynamic', 'static', 'loop', 'array', 'stack'):
+        if bptt_method not in ('traditional', 'dynamic', 'static', 'loop', 'array', 'stack', 'where', 'masked'):
             raise ValueError("`bptt_method` must be one of 'traditional', 'dynamic', 'static', "
-                             "'loop', 'array', or 'stack'")
+                             "'loop', 'array', 'stack', 'where', or 'masked'.")
 
         self._last_time = 0  # Used by train to keep track of time
         self._iter_count = 0  # Used by train to keep track of iterations
@@ -92,17 +94,63 @@ class LSTM(object):
                 self._hot = tf.one_hot(indices=self._x, depth=embedding_size, name='Hot')  # X as one-hot encoded
 
             with tf.variable_scope('Unrolled') as scope:
-                lstm_cell = tf.contrib.rnn.BasicLSTMCell(num_units=cell_size)  # This defines the cell structure
+                lstm_cell = tf.nn.rnn_cell.BasicLSTMCell(num_units=cell_size)  # This defines the cell structure
                 initial_state = lstm_cell.zero_state(batch_size=self._batch_size, dtype=tf.float32)  # Initial state
+                self._outputs = None
 
                 def traditional_bptt():
-                    """Calls the lstm cell with the state and output for each time until num_steps."""
+                    """Uses tensor slicing and python loop to call lstm_cell for each timestep. Does not mask."""
                     state = initial_state
+
                     # Unroll the graph num_steps back into the "past"
+                    self._outputs = []
                     for i in range(num_steps):
                         if i > 0: scope.reuse_variables()  # Reuse the variables created in the 1st LSTM cell
                         output, state = lstm_cell(  # Step the LSTM through the sequence
-                            self._hot[i, ...] if time_major else self._hot[:, i, ...], state)
+                            (self._hot[i, ...] if time_major else self._hot[:, i, ...]), state)
+                        self._outputs.append(output)  # python list
+
+                    self._outputs = tf.stack(self._outputs)  # Tensor, shape=(num_steps, batch_size, embedding_size)
+                    return output
+
+                def masked_bptt():
+                    """Same as traditional, but properly masks the outputs using multiplication."""
+                    state = initial_state
+
+                    # Unroll the graph num_steps back into the "past"
+                    self._outputs = []
+                    for i in range(num_steps):
+                        if i > 0: scope.reuse_variables()  # Reuse the variables created in the 1st LSTM cell
+                        output, state = lstm_cell(  # Step the LSTM through the sequence
+                            (self._hot[i, ...] if time_major else self._hot[:, i, ...]), state)
+                        self._outputs.append(output)  # python list
+
+                    self._outputs = tf.stack(self._outputs)  # Tensor, shape=(num_steps, batch_size, embedding_size)
+                    mask = tf.sequence_mask(self._lengths, maxlen=num_steps, dtype=tf.float32)  # (batch_size, num_steps)
+                    mask = tf.expand_dims(mask, axis=-1)  # (batch_size, num_steps, 1)
+                    mask = tf.transpose(mask, (1, 0, 2))  # (num_steps, batch_size, 1)
+                    self._outputs *= mask
+                    return self._outputs[-1]
+
+                def where_bptt():
+                    """Same as `traditional_bptt`, but uses tf.where to mask the output and state."""
+                    state = initial_state
+                    zeros = tf.zeros((self._batch_size, lstm_cell.output_size))
+
+                    # Unroll the graph num_steps back into the "past"
+                    self._outputs = []
+                    for i in range(num_steps):
+                        if i > 0: scope.reuse_variables()  # Reuse the variables created in the 1st LSTM cell
+                        output, new_state = lstm_cell(  # Step the LSTM through the sequence
+                            (self._hot[i, ...] if time_major else self._hot[:, i, ...]), state)
+
+                        cond = tf.less(i, self._lengths)
+                        output = tf.where(cond, x=output, y=zeros, name='Passed-Output')
+                        state = [tf.where(cond, new_state, state, name='Passed-State')
+                                 for new_state, state in zip(new_state, state)]  # Mask each element of LSTMStateTuple
+                        self._outputs.append(output)  # python list
+
+                    self._outputs = tf.stack(self._outputs)  # Tensor, shape=(num_steps, batch_size, embedding_size)
                     return output
 
                 def dynamic_bptt():
@@ -114,6 +162,7 @@ class LSTM(object):
                         time_major=time_major,
                         scope=scope
                     )
+                    self._outputs = outputs  # Tensor
                     return outputs[-1, ...] if time_major else outputs[:, -1, ...]
 
                 def static_bptt():
@@ -126,10 +175,17 @@ class LSTM(object):
                         initial_state=initial_state,
                         scope=scope
                     )
+
+                    self._outputs = tf.stack(outputs)  # Tensor, shape=(num_steps, batch_size, embedding_size)
                     return outputs[-1]
 
                 def loop_bptt():
-                    """Uses tf.while_loop to unroll graph, but doesn't use TensorArrays or tf.where"""
+                    """Uses tf.while_loop to unroll graph, but doesn't use TensorArrays or tf.where.
+
+                    Note: because of how tf.while_loop works, it can only accumulate the list of outputs over the
+                    various timesteps using TensorFlow data structures, hence `loop_bppt` does not have a
+                    `self._outputs` variable.
+                    """
                     # Initial time, used as a counter variable in the loop for the unrolling
                     time = tf.constant(0, dtype=tf.int32, name='Time')
 
@@ -138,6 +194,7 @@ class LSTM(object):
                             self._hot[time, ...] if time_major else self._hot[:, time, ...],
                             state_t
                         )
+
                         return time+1, new_output, new_state
 
                     _, last_output, _ = tf.while_loop(
@@ -147,12 +204,14 @@ class LSTM(object):
                         shape_invariants=(
                             time.shape,
                             tf.TensorShape((None, lstm_cell.output_size)),
-                            LSTMStateTuple(*tuple(tf.TensorShape((None, size)) for size in lstm_cell.state_size))
+                            LSTMStateTuple(*tuple(tf.TensorShape((None, size)) for size in lstm_cell.state_size)),
                         )
                     )
                     return last_output
 
                 def array_bptt():
+                    self._outputs = []
+
                     input_ta = tf.TensorArray(tf.float32, size=num_steps, tensor_array_name='Inputs')
                     input_ta = input_ta.unstack(self._hot if time_major else tf.transpose(self._hot, (1,0,2)))
 
@@ -162,16 +221,20 @@ class LSTM(object):
                         if i > 0: scope.reuse_variables()  # Reuse the variables created in the 1st LSTM cell
                         output, state = lstm_cell(  # Step the LSTM through the sequence
                             input_ta.read(i), state)
+                        self._outputs.append(output)  # python list
                     return output
 
                 def stack_bptt():
                     """Almost the same as traditional, but uses tf.unstack"""
                     inputs = tf.unstack(self._hot, axis=0 if time_major else 1)
                     state = initial_state
+
                     self._outputs = []
+
                     for i, x in enumerate(inputs):
                         if i > 0: scope.reuse_variables()  # Reuse the variables created in the 1st LSTM cell
                         output, state = lstm_cell(x, state)  # Step the LSTM through the sequence
+                        self._outputs.append(output)  # python list
                     return output
 
                 # Emulate a switch statement
@@ -181,7 +244,9 @@ class LSTM(object):
                     'static': static_bptt,
                     'loop': loop_bptt,
                     'array': array_bptt,
-                    'stack': stack_bptt
+                    'stack': stack_bptt,
+                    'where': where_bptt,
+                    'masked': masked_bptt,
                 }.get(bptt_method)()
 
             with tf.variable_scope('Softmax'):
