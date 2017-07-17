@@ -7,6 +7,7 @@ import tensorflow as tf
 
 from time import time, strftime
 from tensorflow.contrib.rnn import LSTMStateTuple
+from functools import partial as part
 
 
 class LSTM(object):
@@ -113,8 +114,6 @@ class LSTM(object):
                         output, state = lstm_cell(  # Step the LSTM through the sequence
                             (self._hot[i, ...] if time_major else self._hot[:, i, ...]), state)
                         self._outputs.append(output)  # python list
-
-                    self._outputs = tf.stack(self._outputs)  # Tensor, shape=(num_steps, batch_size, embedding_size)
                     return output
 
                 def masked_bptt():
@@ -282,8 +281,50 @@ class LSTM(object):
                         outputs *= mask
                         return outputs
 
-                    self._outputs = dynamic_graph()
-                    return self._outputs[-1]
+                    def static_graph():
+                        """Uses tensor slicing and python loop to call lstm_cell for each timestep. It does not mask,
+                        but becuase it corectly selects from a python array which timestep to keep, it should compute
+                        only as much as is needed."""
+
+                        def call_cell(i, state):
+                            return lstm_cell((self._hot[i, ...] if time_major else self._hot[:, i, ...]), state)
+
+                        the_steps = {}
+
+                        def gen_step(i):
+                            """Generates or returns already generated information for a given timestep.
+
+                            Returns:
+                                A tuple of (output, state) for the specified timestep
+                            """
+                            print("gen_step", i)
+
+                            def gen():
+                                print("gen", i)
+                                if i > 0:
+                                    scope.reuse_variables()
+                                    the_step = call_cell(i, gen_step(i-1)[1])
+                                else:
+                                    the_step = call_cell(i, initial_state)
+                                the_steps[i] = lambda: the_step
+                                return the_step
+                            result = the_steps.get(i, gen)  # There can only be one!
+                            return result()
+
+                        def gen_output(i):
+                            return gen_step(i)[0]
+
+                        interval_size = 10
+                        pairs = []
+                        for i in range(num_steps):
+                            tmp = (tf.equal(i, self._max_sequence_length), part(gen_output, i))
+                            pairs.append(tmp)
+                        final_output = tf.case(
+                            pairs,
+                            pairs[0][1],
+                            name='Unrolled-Output')
+                        return final_output
+                    return static_graph()
 
                 # Emulate a switch statement
                 final_output = {
@@ -444,6 +485,7 @@ class LSTM(object):
 
     def apply(self, x_data, lengths_data=None):
         """Applies the model to the batch of data provided. Typically called after the model is trained.
+
         Args:
             x_data:  An ndarray of the data to apply the model to. Should have a similar shape to the training data.
                 Depending on the value of `bptt_method`, the time dimension may or may not be permitted to be larger or
@@ -464,6 +506,7 @@ class LSTM(object):
 
     def save_model(self, save_path=None):
         """Saves the model in the specified file.
+
         Args:
             save_path:  The relative path to the file. By default, it is
                 saved/LSTM-Year-Month-Date_Hour-Minute-Second.ckpt
