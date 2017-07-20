@@ -6,6 +6,7 @@ import tensorflow as tf
 import sys
 
 from time import time
+from bisect import bisect_left
 
 
 def batch_norm(x, shape, axes, phase_train, decay=0.5, scope='BN'):
@@ -60,6 +61,15 @@ def print_examples(model, batch, print_start_stop=True, print_timing=True):
         print("Output:")
         print(y)
     if print_timing: print("\nInference Time: %f seconds" % elapsed)
+
+
+def find_ge(a, x):
+    """Find leftmost item greater than or equal to x"""
+    i = bisect_left(a, x)
+    if i != len(a):
+        return a[i]
+    else:
+        raise ValueError("The list does not have any values greater than or equal to:", x)
 
 
 def eprint(*args, **kwargs):

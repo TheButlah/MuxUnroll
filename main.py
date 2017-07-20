@@ -30,8 +30,8 @@ def main():
     config.gpu_options.allow_growth=True  # Make it so that the program does not grab all GPUs' memory at start
 
     # Initialize the model architecture, but do not pass data
-    model = LSTM(embedding_size, backprop_steps, cell_size=embedding_size,
-                 time_major=time_major, bptt_method='custom', seed=seed, config=config)
+    model = LSTM(embedding_size, backprop_steps, cell_size=embedding_size, time_major=time_major,
+                 selected_steps=(1,2,9,98), seed=seed, config=config)
 
     # Generate random permutations of base `embedding_size` digits, with the output being the one that did not appear.
     # For this problem to make any sense, sequence_length should be equal to embedding_size
@@ -51,7 +51,6 @@ def main():
         x, y, lengths, train_size=0.2, random_state=seed
     )
 
-
     explicit_examples = np.array(  # Apply the model to several example inputs
         [[1,2,3,4,5,6,7,8,9]
         ,[4,5,6,7,8,9,0,1,2]
@@ -60,13 +59,15 @@ def main():
 
     x_train, x_test, y_train, y_test, lengths_train, lengths_test, explicit_examples = format_for_model(
         datasets + [explicit_examples],
-        should_transpose=time_major  # if time_major, then transpose batch and time dims to be time_major
+        should_transpose=time_major  # if _time_major, then transpose batch and time dims to be _time_major
     )
 
     start_time = time()
     # This actually trains the model on a single batch, which in our case is the entirety of the training data.
     model.train(x_train, y_train, lengths_train, num_epochs=num_epochs)
     elapsed_time = time() - start_time
+
+    print("Training Duration: ", elapsed_time)
 
     # print_examples(model, explicit_examples)
 
@@ -75,8 +76,6 @@ def main():
 
     results = model.apply(x_test, lengths_test)
     print("Testing Accuracy: ", np.equal(np.argmax(results, axis=1), y_test).astype(np.float32).mean())
-
-    print("Training Duration: ", elapsed_time)
 
 
 def format_for_model(the_list, should_transpose=False):
