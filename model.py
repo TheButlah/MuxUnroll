@@ -38,13 +38,14 @@ class LSTM(object):
                             pre-trained model, or resuming a previous training session.
             selected_steps: A list (or iterable) of ints that are the timesteps at which to construct additional graphs
                             to multiplex between for the final output. For example, providing [1,25] with num_steps=100
-                            results in the model automatically multiplexing between fully unrolled graphs with steps of
-                            either 1, 25, or 100. This enables highly customizable control over the multiplexer. The
+                            results in the model automatically multiplexing between fully unrolled graphs with either
+                            1, 25, or 100 steps. This enables highly customizable control over the multiplexer. The
                             benefit of the multiplexer is that a faster unrolling method can be used for all the graphs,
                             yet whenever the maximum sequence length for a particular batch is small enough where using
                             the fully unrolled graph is slow, computation won't be wasted because a smaller graph is
-                            selected by the multiplexer. Will throw a ValueError if any elements of this list are
-                            greater than or equal to num_steps.
+                            selected by the multiplexer. Note that the graphs constructed are in addition to the regular
+                            full-length graph. Will throw a ValueError if any elements of this list are greater than or
+                            equal to num_steps, or less than 1.
             config:         A ConfigProto that can configure the TensorFlow session. Only use if you know what it is.
         """
         print("Constructing Architecture...")
@@ -68,11 +69,13 @@ class LSTM(object):
 
         if selected_steps is not None:
             selected_steps = sorted(selected_steps)
-            if not (0 <= selected_steps[0] < num_steps and 0 <= selected_steps[-1] < num_steps):
+            if not (0 < selected_steps[0] < num_steps and 0 < selected_steps[-1] < num_steps):
                 raise ValueError("selected_steps must contain only integers in the range [1,num_steps)")
             for x in selected_steps:
                 if not isinstance(x, int):
                     raise ValueError("selected_steps must contain only integers in the range [1,num_steps)")
+        else:
+            selected_steps = []
         selected_steps.append(num_steps)
 
         self._graph = tf.Graph()
@@ -130,7 +133,7 @@ class LSTM(object):
                     time_step: An int that will be used to select the tensor to use as input to the rest of the graph.
                     Note that 1 means 1st timestep (length = 1) because we aren't 0-indexing
                 """
-                final_output = self._outputs[time_step-1]  # We may not be 0-indexing, but python sure is!
+                final_output = self._outputs[time_step-1]  # We may not be 0-indexing, but python is!
                 results = {}
                 # use name_scope instead of variable_scope so that it only applies the custom name to ops
                 with tf.name_scope(str(time_step)):

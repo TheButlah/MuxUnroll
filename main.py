@@ -18,7 +18,7 @@ def main():
     seed = 1337
     batch_size = 5000
     num_epochs = 1000
-    sequence_length = 100
+    sequence_length = 10
     # In our architecture, the graph is unfolded backprop_steps
     backprop_steps = sequence_length-1
     embedding_size = 10  # The number of unique elements in our "Vocabulary", in this case all 10 digits.
@@ -31,7 +31,7 @@ def main():
 
     # Initialize the model architecture, but do not pass data
     model = LSTM(embedding_size, backprop_steps, cell_size=embedding_size, time_major=time_major,
-                 selected_steps=(1,2,9,98), seed=seed, config=config)
+                 selected_steps=range(), seed=seed, config=config)
 
     # Generate random permutations of base `embedding_size` digits, with the output being the one that did not appear.
     # For this problem to make any sense, sequence_length should be equal to embedding_size
@@ -47,7 +47,7 @@ def main():
 
     lengths = np.full((batch_size,), embedding_size-1, dtype=np.int32)
 
-    datasets = train_test_split(  # Split into training and testing sets
+    datasets = train_test_split.(  # Split into training and testing sets
         x, y, lengths, train_size=0.2, random_state=seed
     )
 
