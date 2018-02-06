@@ -1,5 +1,5 @@
-# LSTM
-An implementation of the LSTM Recurrent Neural Network in TensorFlow using Multiplexer Unrolling.
+# MuxUnroll
+An implementation of my Multiplexer Unrolling technique implemented for a LSTM Recurrent Neural Network in TensorFlow.
 
 Unlike a regular RNN, this implementation of an LSTM uses a technique I developed called "Multiplexer Unrolling". It is a technique used when performing the Backpropogation Through Time (BPTT) algorithm. During BPTT, the graph is "unrolled" meaning it ceases to be a RNN and instead becomes a feed-forward neural network. In practice, the graph cannot be unrolled to an infinite length, so it must be truncated. In TensorFlow, the way this is done is to unroll to the maximum length of the sequence. This is what I call "traditional unrolling".
 
