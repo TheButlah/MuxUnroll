@@ -8,6 +8,6 @@ The problem with traditional unrolling is that there is a lot of wasted computat
 My method instead creates many duplicate graphs with shared weights, each with a different unrolling length. It then multiplexes between them outside of TensorFlow to determine the best one to use for a given input batch. This takes more resources to construct the graph at initialization, but once constructed training speeds are dramatically faster. **In my tests, I managed to get an average speedup of ~2x faster training speeds** in graphs with maximum unroll lengths of 100 but sequences that averaged 50 units long.
 
 Important Caveats:
-- The maximum sequence length of a batch is what the multiplexer uses as the length. Hence try to minimize the longest length in each batch by sorting your data by length when batching. Note that this can add skew into the model so be smart about this.
+- The maximum sequence length of a batch is what the multiplexer uses as the length. Hence try to minimize the longest length in each batch by sorting your data by length when batching. Note that this can add bias into the model so be smart about this.
 - The largest benefits will be seen when using long maximum unrolling lengths.
 - The graph construction can consume lots of memory. Be conservative with how many graphs you wish to construct.
